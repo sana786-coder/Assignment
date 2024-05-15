@@ -1,0 +1,141 @@
+Step 1: Dockerfile
+Create a Dockerfile in the root directory of the open-flights project with the following content:
+
+Dockerfile
+# Use the official Ruby image
+FROM ruby:2.7
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Install dependencies
+COPY Gemfile Gemfile.lock ./
+RUN bundle install
+
+# Copy the application code
+COPY . .
+
+# Start the Rails server
+CMD ["rails", "server", "-b", "0.0.0.0"]
+
+Step 2: Build and Push Docker Image
+Build and push the Docker image to Docker Hub:
+
+
+docker build -t Flights/open-flights:latest .
+docker push Flights/open-flights:latest
+
+Step 3: Kubernetes Deployment YAML
+Create a Kubernetes deployment YAML file (open-flights-deployment.yaml) to deploy the application on Kubernetes:
+
+yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-flights
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: open-flights
+  template:
+    metadata:
+      labels:
+        app: open-flights
+    spec:
+      containers:
+      - name: open-flights
+        image: Flights/open-flights:latest
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-flights
+spec:
+  selector:
+    app: open-flights
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: LoadBalancer
+
+Step 4: Deploy the Application on Kubernetes
+Apply the Kubernetes deployment YAML to deploy the application on Kubernetes:
+
+
+
+kubectl apply -f open-flights-deployment.yaml
+Step 5: ArgoCD Configuration
+Deploy and configure ArgoCD to manage the deployment of your application using GitOps. Follow the ArgoCD documentation for detailed instructions.
+
+Step 6: Tekton Pipeline
+Set up Tekton pipelines to build and push the application image to Docker Hub. Use the following example Tekton pipeline:
+
+yaml
+
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: build-and-push
+spec:
+  inputs:
+    resources:
+      - name: source
+        type: git
+    params:
+      - name: pathToDockerFile
+        type: string
+        default: /workspace/source/Dockerfile
+      - name: pathToContext
+        type: string
+        default: /workspace/source
+      - name: imageName
+        type: string
+      - name: tag
+        type: string
+  outputs:
+    resources:
+      - name: image
+        type: image
+  steps:
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:latest
+      env:
+        - name: DOCKER_CONFIG
+          value: /tekton/home/.docker
+      command:
+        - /kaniko/executor
+      args:
+        - --dockerfile=$(inputs.params.pathToDockerFile)
+        - --context=$(inputs.params.pathToContext)
+        - --destination=$(inputs.params.imageName):$(inputs.params.tag)
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: build-and-push-pipeline
+spec:
+  resources:
+    - name: app-source
+      type: git
+  tasks:
+    - name: build-and-push
+      taskRef:
+        name: build-and-push
+      params:
+        - name: pathToDockerFile
+          value: /workspace/source/Dockerfile
+        - name: pathToContext
+          value: /workspace/source
+        - name: imageName
+          value: Flights/open-flights
+        - name: tag
+          value: latest
+      resources:
+        inputs:
+          - name: source
+            resource: app-source
